@@ -1,0 +1,1998 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Spasial Biodiversitas Borneo 3D - Live Telemetry & Sub-List</title>
+
+  <!-- MapLibre GL JS CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <!-- Turf.js untuk Geoprocessing Spasial -->
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      background: #0a0b0d;
+      color: #e2e8f0;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #0a0b0d;
+    }
+
+    /* ========================================================
+       BAR SIMULASI TELEMETRI (MEMANJANG MAKSIMUM DI PALING ATAS)
+       ======================================================== */
+    .live-telemetry-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+      height: 42px;
+      z-index: 200;
+      background: rgba(13, 16, 22, 0.95);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(56, 189, 248, 0.35);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+      pointer-events: none;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #38bdf8;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #38bdf8;
+      animation: livePulse 1.4s infinite ease-in-out;
+      flex-shrink: 0;
+    }
+    @keyframes livePulse {
+      0% { transform: scale(0.9); opacity: 0.6; }
+      50% { transform: scale(1.3); opacity: 1; }
+      100% { transform: scale(0.9); opacity: 0.6; }
+    }
+    .sim-tag {
+      font-size: 9px;
+      font-weight: 800;
+      background: rgba(249, 115, 22, 0.25);
+      color: #fb923c;
+      border: 1px solid rgba(249, 115, 22, 0.5);
+      padding: 2px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .telemetry-text {
+      font-size: 11px;
+      color: #f1f5f9;
+      font-family: monospace;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+    .telemetry-text b {
+      color: #38bdf8;
+    }
+
+    /* Efek Radar Ping di Peta */
+    .radar-ping-marker {
+      width: 24px;
+      height: 24px;
+      position: relative;
+      pointer-events: none;
+    }
+    .radar-ring {
+      width: 100%;
+      height: 100%;
+      border: 2px solid #38bdf8;
+      border-radius: 50%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      animation: radarWave 2s infinite ease-out;
+      opacity: 0;
+    }
+    .radar-center {
+      width: 6px;
+      height: 6px;
+      background: #38bdf8;
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 8px #38bdf8;
+    }
+    @keyframes radarWave {
+      0% { transform: scale(0.4); opacity: 1; }
+      100% { transform: scale(2.8); opacity: 0; }
+    }
+
+    /* ========================================================
+       PANEL KIRI: INFORMASI & NAVIGASI PETA (DITURUNKAN KE BAWAH)
+       ======================================================== */
+    .narrative-panel {
+      position: absolute;
+      top: 54px; /* Diturunkan agar di bawah bar telemetri */
+      left: 24px;
+      z-index: 10;
+      width: 360px;
+      background: rgba(18, 22, 28, 0.88);
+      backdrop-filter: blur(16px);
+      padding: 20px 22px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .panel-kicker {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: #f97316;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .panel-kicker::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      background: #f97316;
+      border-radius: 50%;
+    }
+    .narrative-panel h1 {
+      font-size: 19px;
+      font-weight: 800;
+      color: #f8fafc;
+      line-height: 1.25;
+      letter-spacing: -0.2px;
+    }
+    .narrative-lead {
+      font-size: 11.5px;
+      color: #94a3b8;
+      line-height: 1.5;
+      text-align: justify;
+    }
+    
+    .biome-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      padding: 8px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .b-stat {
+      display: flex;
+      flex-direction: column;
+    }
+    .b-stat .num {
+      font-size: 13px;
+      font-weight: 800;
+      color: #f1f5f9;
+    }
+    .b-stat .lbl {
+      font-size: 8.5px;
+      color: #64748b;
+      font-weight: 600;
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+
+    .nav-guide {
+      background: rgba(255, 255, 255, 0.04);
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      color: #cbd5e1;
+      line-height: 1.45;
+      border-left: 3px solid #f97316;
+    }
+
+    .btn-reset {
+      width: 100%;
+      padding: 10px 12px;
+      background: #272f3d;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      color: #f8fafc;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-reset:hover {
+      background: #333e50;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    /* ========================================================
+       KONTROL NAVIGASI (ZOOM & KOMPAS UTARA)
+       ======================================================== */
+    .map-custom-controls {
+      position: absolute;
+      top: 390px; /* Disesuaikan dengan posisi baru panel kiri */
+      left: 24px;
+      z-index: 15;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ctrl-btn {
+      width: 38px;
+      height: 38px;
+      background: rgba(18, 22, 28, 0.9);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .ctrl-btn:hover {
+      background: #272f3d;
+      border-color: #f97316;
+      color: #f97316;
+      transform: translateY(-2px);
+    }
+    .ctrl-btn:active {
+      transform: translateY(0);
+    }
+    .compass-icon {
+      font-size: 16px;
+      transition: transform 0.25s ease-out;
+      display: inline-block;
+    }
+
+    /* ========================================================
+       KONTROL TREN POPULASI HISTORIS (KIRI BAWAH)
+       ======================================================== */
+    .timeline-container {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      z-index: 10;
+      width: 360px;
+      background: rgba(18, 22, 28, 0.88);
+      backdrop-filter: blur(16px);
+      padding: 12px 18px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: #f1f5f9;
+    }
+    .timeline-badge {
+      font-size: 10px;
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      padding: 2px 7px;
+      border-radius: 6px;
+    }
+    .timeline-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn-play {
+      background: #f97316;
+      border: none;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.2s;
+    }
+    .btn-play:hover {
+      background: #ea580c;
+    }
+    .time-slider {
+      flex: 1;
+      accent-color: #f97316;
+      cursor: pointer;
+    }
+    .timeline-ticks {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9px;
+      font-weight: 700;
+      color: #64748b;
+      padding: 0 2px;
+    }
+
+    /* ========================================================
+       PANEL KANAN: DATA POPULASI & SEBARAN SATWA (DITURUNKAN KE BAWAH)
+       ======================================================== */
+    .sidebar-panel {
+      position: absolute;
+      top: 54px; /* Diturunkan agar di bawah bar telemetri */
+      right: 24px;
+      bottom: 24px;
+      width: 450px;
+      z-index: 100;
+      background: rgba(18, 22, 28, 0.94);
+      backdrop-filter: blur(20px);
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: -16px 20px 45px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(500px);
+      transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
+    .sidebar-panel.open {
+      transform: translateX(0);
+    }
+    
+    .sidebar-header {
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      position: relative;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%);
+    }
+    .header-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .sidebar-header span.tag {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      color: #f97316;
+      text-transform: uppercase;
+    }
+    .sidebar-header h2 {
+      font-size: 21px;
+      font-weight: 800;
+      color: #f8fafc;
+      letter-spacing: -0.3px;
+    }
+    .sidebar-header p.river-info {
+      font-size: 11.5px;
+      color: #38bdf8;
+      font-weight: 700;
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .close-btn {
+      width: 30px;
+      height: 30px;
+      background: rgba(255, 255, 255, 0.08);
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #cbd5e1;
+      transition: background 0.2s;
+    }
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .iucn-guide-box {
+      background: rgba(0, 0, 0, 0.25);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 10px 22px;
+    }
+    .iucn-guide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fdba74;
+    }
+    .iucn-guide-details {
+      display: none;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.1);
+      flex-direction: column;
+      gap: 7px;
+      font-size: 10px;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+    .iucn-guide-details.open {
+      display: flex;
+    }
+    .guide-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .guide-badge {
+      font-size: 8.5px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #fff;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .guide-badge.cr { background: #dc2626; }
+    .guide-badge.en { background: #ea580c; }
+    .guide-badge.vu { background: #0284c7; }
+    .guide-badge.lc { background: #059669; }
+
+    .filter-section {
+      padding: 10px 22px;
+      background: transparent;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .filter-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .iucn-pills-row {
+      display: flex;
+      gap: 8px;
+    }
+    .iucn-pill {
+      flex: 1;
+      padding: 5px 6px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1.5px solid transparent;
+      text-align: center;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .pill-cr { background: rgba(220, 38, 38, 0.15); color: #f87171; border-color: rgba(220, 38, 38, 0.3); }
+    .pill-en { background: rgba(234, 88, 12, 0.15); color: #fb923c; border-color: rgba(234, 88, 12, 0.3); }
+    .pill-vu { background: rgba(2, 132, 199, 0.15); color: #38bdf8; border-color: rgba(2, 132, 199, 0.3); }
+    .pill-cr.active { border-color: #ef4444; background: rgba(239, 68, 68, 0.35); color: #fff; }
+    .pill-en.active { border-color: #f97316; background: rgba(249, 115, 22, 0.35); color: #fff; }
+    .pill-vu.active { border-color: #0284c7; background: rgba(2, 132, 199, 0.35); color: #fff; }
+
+    .scroll-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .fauna-card {
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      border: 1.5px solid rgba(255, 255, 255, 0.08);
+      padding: 14px 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+    .fauna-card:hover {
+      border-color: #f97316;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .fauna-card.selected {
+      border-color: #38bdf8 !important;
+      background: rgba(56, 189, 248, 0.08) !important;
+      box-shadow: 0 8px 24px rgba(56, 189, 248, 0.2);
+    }
+    .fauna-card.hidden-filter {
+      display: none !important;
+    }
+    .fauna-card.dimmed {
+      opacity: 0.3;
+    }
+
+    .telemetry-ping-flash {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 9px;
+      font-family: monospace;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      padding: 2px 7px;
+      border-radius: 10px;
+    }
+
+    .fauna-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+    .fauna-title {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #f8fafc;
+    }
+    .fauna-latin {
+      font-size: 10.5px;
+      font-style: italic;
+      color: #94a3b8;
+      margin-top: 1px;
+    }
+    .status-badge {
+      font-size: 9.5px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 5px;
+      white-space: nowrap;
+    }
+    .status-cr { background: rgba(220, 38, 38, 0.2); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); }
+    .status-en { background: rgba(234, 88, 12, 0.2); color: #fb923c; border: 1px solid rgba(234, 88, 12, 0.4); }
+    .status-vu { background: rgba(2, 132, 199, 0.2); color: #38bdf8; border: 1px solid rgba(2, 132, 199, 0.4); }
+    .status-lc { background: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.4); }
+
+    .fauna-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+      font-size: 10.5px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.1);
+      padding-top: 8px;
+    }
+    .fg-item span.lbl {
+      color: #64748b;
+      display: block;
+      font-size: 8.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .fg-item span.val {
+      font-weight: 700;
+      color: #e2e8f0;
+    }
+    .threat-box {
+      margin-top: 6px;
+      font-size: 10px;
+      color: #cbd5e1;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 5px 8px;
+      border-radius: 6px;
+      line-height: 1.4;
+    }
+
+    /* ========================================================
+       MODUL SUB-LIST SATWA BERDAMPINGAN (SYMPATRIC SPECIES)
+       ======================================================== */
+    .sympatric-section {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .sympatric-header {
+      font-size: 10px;
+      font-weight: 800;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .sympatric-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .sympatric-item {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      padding: 5px 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+    }
+    .sympatric-item .meta-col {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .sympatric-item .name-val {
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    .sympatric-item .latin-val {
+      font-style: italic;
+      color: #64748b;
+      font-size: 9px;
+    }
+    .badge-mini {
+      font-size: 8px;
+      font-weight: 800;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+
+    .data-ref-tag {
+      margin-top: 6px;
+      font-size: 9px;
+      color: #64748b;
+      font-style: italic;
+    }
+
+    .metadata-drawer {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .metadata-toggle {
+      width: 100%;
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .metadata-toggle span.badge-verified {
+      font-size: 9px;
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+    .metadata-content {
+      display: none;
+      padding: 0 20px 14px;
+      font-size: 10px;
+      color: #94a3b8;
+    }
+    .metadata-content.open {
+      display: block;
+    }
+    .metadata-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 4px;
+    }
+    .metadata-list li {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dotted rgba(255, 255, 255, 0.08);
+      padding-bottom: 3px;
+    }
+    .metadata-list li span.k { color: #64748b; }
+    .metadata-list li span.v { font-weight: 700; color: #f1f5f9; text-align: right; }
+  </style>
+</head>
+<body>
+
+  <!-- Live Telemetry Status Bar (Memanjang Penuh di Paling Atas Layar) -->
+  <div class="live-telemetry-panel">
+    <div class="pulse-dot"></div>
+    <span class="sim-tag">MODE SIMULASI TELEMETRI</span>
+    <div class="telemetry-text" id="telemetry-ticker">
+      Gateway: Standby | Menyambungkan ke <b>Iridium / Argos Satellite Receiver</b>...
+    </div>
+  </div>
+
+  <!-- Panel Kiri: Informasi & Navigasi Peta (Diturunkan di Bawah Status Bar) -->
+  <aside class="narrative-panel">
+    <div class="panel-kicker">Biogeografi Hutan Hujan Tropis Borneo</div>
+    <h1>Diorama Ekologi Borneo</h1>
+    
+    <p class="narrative-lead">
+      Kalimantan menaungi salah satu hutan hujan tropis tertua di bumi (&gt;140 juta tahun), terhubung dari dataran tinggi batas negara hingga rawa gambut pesisir.
+    </p>
+
+    <div class="biome-stats">
+      <div class="b-stat">
+        <span class="num">&gt;140 Jt</span>
+        <span class="lbl">Tahun Usia Hutan</span>
+      </div>
+      <div class="b-stat">
+        <span class="num">220+</span>
+        <span class="lbl">Spesies Mamalia</span>
+      </div>
+      <div class="b-stat">
+        <span class="num">600+</span>
+        <span class="lbl">Spesies Burung</span>
+      </div>
+    </div>
+
+    <div class="nav-guide">
+      <b>Panduan Interaksi:</b><br>
+      Klik salah satu wilayah provinsi untuk melihat zonasi satwa utama dan daftar spesies yang hidup berdampingan di habitatnya.
+    </div>
+
+    <button class="btn-reset" onclick="resetView()">
+      <span>↺</span> Reset Map
+    </button>
+  </aside>
+
+  <!-- Tombol Zoom In, Zoom Out, dan Arah Utara -->
+  <div class="map-custom-controls">
+    <button class="ctrl-btn" onclick="zoomInMap()" title="Perbesar Tampilan (Zoom In)">＋</button>
+    <button class="ctrl-btn" onclick="zoomOutMap()" title="Perkecil Tampilan (Zoom Out)">－</button>
+    <button class="ctrl-btn" onclick="resetNorthCompass()" title="Pusatkan Arah Utara (Reset Bearing)">
+      <span class="compass-icon" id="compass-needle">▲</span>
+    </button>
+  </div>
+
+  <!-- Panel Tren Populasi Historis -->
+  <div class="timeline-container" id="timeline-container" style="display: none;">
+    <div class="timeline-header">
+      <span>⏱️ Tren Populasi: <b id="timeline-year-text" style="color:#f97316;">2024</b></span>
+      <span class="timeline-badge" id="timeline-status-badge">Kondisi Terkini</span>
+    </div>
+    <div class="timeline-controls">
+      <button class="btn-play" id="btn-play-pause" onclick="togglePlayPause()" title="Putar Otomatis">▶</button>
+      <input type="range" min="0" max="3" step="1" value="3" class="time-slider" id="timeline-slider" oninput="onTimelineChange(this.value)">
+    </div>
+    <div class="timeline-ticks">
+      <span>2010</span>
+      <span>2015</span>
+      <span>2020</span>
+      <span>2024</span>
+    </div>
+  </div>
+
+  <!-- Panel Kanan: Data Populasi & Sebaran Satwa (Diturunkan di Bawah Status Bar) -->
+  <aside class="sidebar-panel" id="sidebar-panel">
+    <div class="sidebar-header">
+      <div class="header-top-row">
+        <span class="tag">Data Populasi & Sebaran Satwa</span>
+        <button class="close-btn" onclick="resetView()" title="Tutup Panel">✕</button>
+      </div>
+      <h2 id="sb-prov-name">-</h2>
+      <p class="river-info" id="sb-river-info">
+        <span>🌊</span> <span>-</span>
+      </p>
+    </div>
+
+    <!-- Edukasi Tolok Ukur Standar IUCN -->
+    <div class="iucn-guide-box">
+      <div class="iucn-guide-header" onclick="toggleIucnGuide()">
+        <span>📖 Apa Tolok Ukur Status Keterancaman IUCN?</span>
+        <span id="iucn-arrow">▼</span>
+      </div>
+      <div class="iucn-guide-details" id="iucn-guide-details">
+        <div class="guide-item">
+          <span class="guide-badge cr">CR</span>
+          <div><b>Kritis Ekstrem (Critically Endangered):</b> Penurunan populasi <b>&ge;80%</b> dalam 10 tahun / 3 generasi, atau sisa individu dewasa <b>&lt;250 ekor</b> di alam bebas.</div>
+        </div>
+        <div class="guide-item">
+          <span class="guide-badge en">EN</span>
+          <div><b>Terancam Punah (Endangered):</b> Penurunan populasi mencapai <b>&ge;50%</b> atau sisa individu dewasa di seluruh dunia <b>&lt;2.500 ekor</b>.</div>
+        </div>
+        <div class="guide-item">
+          <span class="guide-badge vu">VU</span>
+          <div><b>Rentan (Vulnerable):</b> Penurunan populasi <b>&ge;30%</b> atau populasi dewasa <b>&lt;10.000 ekor</b>. Berisiko tinggi punah jika alih fungsi habitat berlanjut.</div>
+        </div>
+        <div class="guide-item">
+          <span class="guide-badge lc">LC</span>
+          <div><b>Risiko Rendah / Terpantau (Least Concern):</b> Tersebar relatif luas, namun dilindungi ketat oleh regulasi nasional (<b>Permen LHK No. P.106</b>).</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-label">Filter Status Konservasi IUCN:</div>
+      <div class="iucn-pills-row">
+        <div class="iucn-pill pill-cr" id="pill-cr" onclick="toggleIucnFilter('CR')">
+          CR • Kritis
+        </div>
+        <div class="iucn-pill pill-en" id="pill-en" onclick="toggleIucnFilter('EN')">
+          EN • Terancam
+        </div>
+        <div class="iucn-pill pill-vu" id="pill-vu" onclick="toggleIucnFilter('VU')">
+          VU • Rentan
+        </div>
+      </div>
+    </div>
+
+    <div class="scroll-body">
+      <div id="fauna-list-container" style="display: flex; flex-direction: column; gap: 12px;"></div>
+    </div>
+
+    <div class="metadata-drawer">
+      <button class="metadata-toggle" onclick="toggleMetadata()">
+        <span>📋 Metadata & Validasi Geospasial</span>
+        <span class="badge-verified">✓ WGS84 Validated</span>
+      </button>
+      <div class="metadata-content" id="metadata-content">
+        <ul class="metadata-list">
+          <li><span class="k">Sumber Data Populasi:</span> <span class="v" id="meta-source">-</span></li>
+          <li><span class="k">Metode Inventarisasi:</span> <span class="v" id="meta-method">-</span></li>
+          <li><span class="k">Sensor Pelacak Telemetri:</span> <span class="v">Argos / Iridium GPS Satellite Collar (Simulasi)</span></li>
+          <li><span class="k">Kepatuhan Regulasi:</span> <span class="v">Permen LHK P.106 & CITES App I/II</span></li>
+          <li><span class="k">Sistem Referensi Spasial:</span> <span class="v">EPSG:4326 (WGS 84 Ellipsoid)</span></li>
+        </ul>
+      </div>
+    </div>
+  </aside>
+
+  <div id="map"></div>
+
+  <script>
+    var provinceData = [
+      { 
+        name: 'KALIMANTAN BARAT',  
+        center: [111.1, -0.1],
+        river: 'Daerah Aliran Sungai (DAS) Kapuas Utama',
+        meta: {
+          source: 'BKSDA Kalbar, WWF-Indonesia, IUCN Red List 2023',
+          method: 'Nest Count Survey & Camera Trapping'
+        },
+        fauna: [
+          {
+            id: 'kb-1',
+            name: 'Orangutan Kalimantan Barat',
+            latin: 'Pongo pygmaeus pygmaeus',
+            collarId: 'IRID-KB01',
+            popHistory: [7200, 6100, 5000, 4500],
+            initCoord: [112.4, 0.45],
+            status: 'CR',
+            statusDesc: 'Critically Endangered (Kritis Ekstrem)',
+            trend: 'Menurun (↓)',
+            habitat: 'TN Betung Kerihun & Danau Sentarum',
+            cites: 'CITES Appendiks I (Dilarang Mutlak)',
+            threat: 'Konversi sawit & fragmentasi koridor kanopi',
+            ref: 'Survei PHVA Orangutan (KLHK & FORINA)',
+            coexisting: [
+              { name: 'Kukang Kalimantan', latin: 'Nycticebus menagensis', status: 'VU', note: 'Nokturnal, kanopi tengah' },
+              { name: 'Lutung Merah (Kelasi)', latin: 'Presbytis rubicunda', status: 'LC', note: 'Pemakan pucuk daun' },
+              { name: 'Tarsius Bangka-Borneo', latin: 'Cephalopachus bancanus', status: 'VU', note: 'Insektivora bawah kanopi' }
+            ]
+          },
+          {
+            id: 'kb-2',
+            name: 'Enggang Gading',
+            latin: 'Rhinoplax vigil',
+            collarId: 'SAT-KB02',
+            popHistory: [1800, 1200, 800, 600],
+            initCoord: [111.3, 0.65],
+            status: 'CR',
+            statusDesc: 'Critically Endangered (Kritis Ekstrem)',
+            trend: 'Kritis Ekstrem (⚠)',
+            habitat: 'Hutan primer Kapuas Hulu',
+            cites: 'CITES Appendiks I',
+            threat: 'Perburuan mahkota paruh & penebangan pohon sarang',
+            ref: 'Rangkong Indonesia & BirdLife International',
+            coexisting: [
+              { name: 'Kuau Raja', latin: 'Argusianus argus', status: 'VU', note: 'Burung lantai hutan primer' },
+              { name: 'Pitta Borneo', latin: 'Hydrornis schwaneri', status: 'LC', note: 'Burung lantai tanah berbatu' },
+              { name: 'Sempidan Kalimantan', latin: 'Lophura bulweri', status: 'VU', note: 'Endemik dataran tinggi' }
+            ]
+          },
+          {
+            id: 'kb-3',
+            name: 'Trenggiling Sunda',
+            latin: 'Manis javanica',
+            collarId: 'VECT-KB03',
+            popHistory: [4000, 2800, 1900, 1500],
+            initCoord: [110.2, -0.05],
+            status: 'CR',
+            statusDesc: 'Critically Endangered (Kritis Ekstrem)',
+            trend: 'Menurun Cepat (↓)',
+            habitat: 'Lantai hutan dataran rendah',
+            cites: 'CITES Appendiks I',
+            threat: 'Penyelundupan sisik ilegal antarnegara',
+            ref: 'IUCN Pangolin Specialist Group',
+            coexisting: [
+              { name: 'Binturong', latin: 'Arctictis binturong', status: 'VU', note: 'Karnivora arboreal' },
+              { name: 'Kucing Batu', latin: 'Pardofelis marmorata', status: 'NT', note: 'Pemanjat pohon lincah' },
+              { name: 'Katak Tanpa Paru', latin: 'Barbourula kalimantanensis', status: 'EN', note: 'Sungai dingin berarus deras' }
+            ]
+          },
+          {
+            id: 'kb-4',
+            name: 'Pelanduk Kancil Borneo',
+            latin: 'Tragulus kanchil',
+            collarId: 'VECT-KB04',
+            popHistory: [9500, 9000, 8400, 8000],
+            initCoord: [111.5, -0.6],
+            status: 'LC',
+            statusDesc: 'Least Concern / Terpantau',
+            trend: 'Stabil (→)',
+            habitat: 'Semak belukar hutan sekunder',
+            cites: 'Perlindungan Nasional P.106',
+            threat: 'Jerat liar dan perambahan sempadan sungai',
+            ref: 'Data Inventarisasi Hayati BBTNBKDS',
+            coexisting: [
+              { name: 'Musang Belang', latin: 'Hemigalus derbyanus', status: 'NT', note: 'Lantai hutan riparian' },
+              { name: 'Tupai Ekor Kuda', latin: 'Sundasciurus hippurus', status: 'LC', note: 'Pemakan biji kanopi' }
+            ]
+          }
+        ]
+      },
+      { 
+        name: 'KALIMANTAN TENGAH', 
+        center: [113.5, -1.6],
+        river: 'Daerah Aliran Sungai (DAS) Kahayan & Barito Hulu',
+        meta: {
+          source: 'Balai TN Tanjung Puting, Balai TN Sebangau, WWF Kalteng',
+          method: 'Line Transect Recapture & Bioakustik Gambut'
+        },
+        fauna: [
+          {
+            id: 'kt-1',
+            name: 'Orangutan Wurmbii',
+            latin: 'Pongo pygmaeus wurmbii',
+            collarId: 'IRID-KT01',
+            popHistory: [21000, 18500, 15200, 14000],
+            initCoord: [112.5, -1.5],
+            status: 'CR',
+            statusDesc: 'Critically Endangered (Kritis Ekstrem)',
+            trend: 'Tertekan Kebakaran (↓)',
+            habitat: 'TN Sebangau & TN Tanjung Puting',
+            cites: 'CITES Appendiks I',
+            threat: 'Kebakaran lahan gambut & kanalisasi air rawa',
+            ref: 'Borneo Nature Foundation (BNF)',
+            coexisting: [
+              { name: 'Kera Ekor Panjang Gambut', latin: 'Macaca fascicularis', status: 'EN', note: 'Riparian rawa' },
+              { name: 'Bajing Terbang Kelabu', latin: 'Hylopetes lepidus', status: 'LC', note: 'Nokturnal kanopi atas' }
+            ]
+          },
+          {
+            id: 'kt-2',
+            name: 'Bekantan Hutan Gambut',
+            latin: 'Nasalis larvatus',
+            collarId: 'ARGOS-KT02',
+            popHistory: [7500, 6600, 5800, 5200],
+            initCoord: [113.8, -1.9],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Menurun (↓)',
+            habitat: 'Tepi sungai pasang surut',
+            cites: 'CITES Appendiks I',
+            threat: 'Kerusakan vegetasi pakan bakau dan rambai',
+            ref: 'Pusat Studi Biodiversitas Tropika UNPAR',
+            coexisting: [
+              { name: 'Buaya Senyulong', latin: 'Tomistoma schlegelii', status: 'EN', note: 'Pemangsa air rawa gambut' },
+              { name: 'Biawak Tanpa Telinga', latin: 'Lanthanotus borneensis', status: 'EN', note: 'Fosil hidup sempadan sungai' }
+            ]
+          },
+          {
+            id: 'kt-3',
+            name: 'Macan Dahan Kalimantan',
+            latin: 'Neofelis diardi borneensis',
+            collarId: 'IRID-KT03',
+            popHistory: [2500, 2200, 1950, 1800],
+            initCoord: [113.2, -0.7],
+            status: 'VU',
+            statusDesc: 'Vulnerable (Rentan)',
+            trend: 'Menurun Lambat (↓)',
+            habitat: 'Pegunungan Schwaner',
+            cites: 'CITES Appendiks I',
+            threat: 'Hilangnya tutupan hutan lebat pemangsa',
+            ref: 'WildCRU Oxford & Clouded Leopard Project',
+            coexisting: [
+              { name: 'Kucing Dampau', latin: 'Prionailurus bengalensis', status: 'LC', note: 'Karnivora kecil terestrial' },
+              { name: 'Musang Luwak Borneo', latin: 'Paradoxurus hermaphroditus', status: 'LC', note: 'Pemencar biji buah' }
+            ]
+          },
+          {
+            id: 'kt-4',
+            name: 'Berang-berang Hidung Berbulu',
+            latin: 'Lutra sumatrana',
+            collarId: 'ARGOS-KT04',
+            popHistory: [900, 700, 520, 400],
+            initCoord: [114.3, -1.2],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Rentan Terisolasi (⚠)',
+            habitat: 'Lahan basah rawa Sebangau',
+            cites: 'CITES Appendiks II',
+            threat: 'Pencemaran air & pengeringan kanal gambut',
+            ref: 'IUCN Otter Specialist Group',
+            coexisting: [
+              { name: 'Berang-berang Cakar Kecil', latin: 'Aonyx cinereus', status: 'VU', note: 'Keluarga sosial lahan basah' },
+              { name: 'Ikan Siluk Merah (Arwana)', latin: 'Scleropages formosus', status: 'EN', note: 'Ikan purba air gambut' }
+            ]
+          }
+        ]
+      },
+      { 
+        name: 'KALIMANTAN SELATAN',
+        center: [115.3, -2.8],
+        river: 'Daerah Aliran Sungai (DAS) Barito Hilir & Martapura',
+        meta: {
+          source: 'BKSDA Kalsel, Sahabat Bekantan Indonesia (SBI), ULM',
+          method: 'Boat River Transect & Camera Trap Karst'
+        },
+        fauna: [
+          {
+            id: 'ks-1',
+            name: 'Bekantan Maskot Banua',
+            latin: 'Nasalis larvatus',
+            collarId: 'ARGOS-KS01',
+            popHistory: [4200, 3600, 3100, 2800],
+            initCoord: [114.9, -3.0],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Terisolasi (→)',
+            habitat: 'Pulau Curiak & Muara Barito',
+            cites: 'CITES Appendiks I',
+            threat: 'Alih fungsi lahan mangrove & permukiman sungai',
+            ref: 'Stasiun Riset Bekantan Pulau Curiak',
+            coexisting: [
+              { name: 'Lutung Kelabu', latin: 'Trachypithecus cristatus', status: 'VU', note: 'Vegetasi mangrove delta' },
+              { name: 'Elang Laut Perut Putih', latin: 'Haliaeetus leucogaster', status: 'LC', note: 'Raptor pesisir muara' }
+            ]
+          },
+          {
+            id: 'ks-2',
+            name: 'Kucing Tandang (Lahan Basah)',
+            latin: 'Prionailurus planiceps',
+            collarId: 'VECT-KS02',
+            popHistory: [1600, 1300, 1050, 900],
+            initCoord: [115.4, -2.5],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Kritis Habitat (⚠)',
+            habitat: 'Rawa kaki Peg. Meratus',
+            cites: 'CITES Appendiks I',
+            threat: 'Pengeringan rawa & racun pestisida di perairan',
+            ref: 'IUCN Cat Specialist Group',
+            coexisting: [
+              { name: 'Musang Air', latin: 'Cynogale bennettii', status: 'EN', note: 'Semi-akuatik pemakan kepiting' },
+              { name: 'Kancil Rawa', latin: 'Tragulus napu', status: 'LC', note: 'Herbivora dataran banjir' }
+            ]
+          },
+          {
+            id: 'ks-3',
+            name: 'Owa Jenggot Putih (Kelempiau)',
+            latin: 'Hylobates albibarbis',
+            collarId: 'IRID-KS03',
+            popHistory: [4500, 3900, 3350, 3000],
+            initCoord: [115.6, -1.9],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Menurun (↓)',
+            habitat: 'Pegunungan Meratus',
+            cites: 'CITES Appendiks I',
+            threat: 'Fragmentasi jalur kanopi berayun',
+            ref: 'Yayasan Kalaweit & Geopark Meratus',
+            coexisting: [
+              { name: 'Tupai Terbang Bergaris', latin: 'Petinomys setosus', status: 'VU', note: 'Kanopi hutan karst' },
+              { name: 'Kijang Kuning Kalimantan', latin: 'Muntiacus atherodes', status: 'NT', note: 'Endemik lereng curam' }
+            ]
+          },
+          {
+            id: 'ks-4',
+            name: 'Rangkong Badak',
+            latin: 'Buceros rhinoceros',
+            collarId: 'SAT-KS04',
+            popHistory: [1900, 1600, 1300, 1100],
+            initCoord: [115.8, -2.6],
+            status: 'VU',
+            statusDesc: 'Vulnerable (Rentan)',
+            trend: 'Menurun (↓)',
+            habitat: 'Pohon ara tua hutan Meratus',
+            cites: 'CITES Appendiks II',
+            threat: 'Hilangnya pohon berlubang alami untuk sarang',
+            ref: 'Ekspedisi Hayati Meratus BKSDA Kalsel',
+            coexisting: [
+              { name: 'Julang Emas', latin: 'Rhyticeros undulatus', status: 'VU', note: 'Frugivora penjelajah jauh' },
+              { name: 'Sikatan Cacing', latin: 'Cyornis banyumas', status: 'LC', note: 'Burung tajuk bawah' }
+            ]
+          }
+        ]
+      },
+      { 
+        name: 'KALIMANTAN TIMUR',  
+        center: [116.8, 0.5],
+        river: 'Daerah Aliran Sungai (DAS) Mahakam Utama',
+        meta: {
+          source: 'Yayasan Konservasi RASI, Balai TN Kutai, BKSDA Kaltim',
+          method: 'Boat-based Visual & Acoustic Survey Mahakam'
+        },
+        fauna: [
+          {
+            id: 'ktim-1',
+            name: 'Pesut Mahakam (Lumba-lumba Air Tawar)',
+            latin: 'Orcaella brevirostris',
+            collarId: 'HYDRO-KTIM01',
+            popHistory: [140, 110, 88, 75],
+            initCoord: [116.2, -0.15],
+            status: 'CR',
+            statusDesc: 'Critically Endangered (Kritis Ekstrem)',
+            trend: 'Sangat Kritis Terancam Punah (⚠)',
+            habitat: 'Sungai Mahakam Tengah',
+            cites: 'CITES Appendiks I',
+            threat: 'Tergilas ponton batu bara & terjerat jaring rengge',
+            ref: 'Monitoring Tahunan Yayasan RASI (2024)',
+            coexisting: [
+              { name: 'Labi-labi Bintang (Kura Air)', latin: 'Chitra chitra', status: 'CR', note: 'Lantai lumpur dasar sungai' },
+              { name: 'Ikan Belida Mahakam', latin: 'Chitala lopis', status: 'CR', note: 'Ikan predator air tawar raksasa' }
+            ]
+          },
+          {
+            id: 'ktim-2',
+            name: 'Orangutan Morio Timur',
+            latin: 'Pongo pygmaeus morio',
+            collarId: 'IRID-KTIM02',
+            popHistory: [5500, 4800, 4100, 3750],
+            initCoord: [116.9, 1.2],
+            status: 'CR',
+            statusDesc: 'Critically Endangered (Kritis Ekstrem)',
+            trend: 'Menurun (↓)',
+            habitat: 'TN Kutai & Lanskap Wehea',
+            cites: 'CITES Appendiks I',
+            threat: 'Pertambangan terbuka & kebakaran hutan historis',
+            ref: 'BOS Foundation & Pengelola Hutan Wehea',
+            coexisting: [
+              { name: 'Badak Kalimantan', latin: 'Dicerorhinus sumatrensis harrissoni', status: 'CR', note: 'Sangat langka, lembah tersembunyi' },
+              { name: 'Landak Raya', latin: 'Hystrix brachyura', status: 'LC', note: 'Lantai hutan berbatu' }
+            ]
+          },
+          {
+            id: 'ktim-3',
+            name: 'Beruang Madu',
+            latin: 'Helarctos malayanus',
+            collarId: 'VECT-KTIM03',
+            popHistory: [2100, 1750, 1420, 1200],
+            initCoord: [116.5, -0.9],
+            status: 'VU',
+            statusDesc: 'Vulnerable (Rentan)',
+            trend: 'Menurun Lambat (↓)',
+            habitat: 'Hutan Lindung Sungai Wain Balikpapan',
+            cites: 'CITES Appendiks I',
+            threat: 'Konflik batas kebun & jerat pemburu babi',
+            ref: 'Pusat Suaka Orangutan & Satwa Samboja',
+            coexisting: [
+              { name: 'Trenggiling Hutan', latin: 'Manis javanica', status: 'CR', note: 'Pemakan rayap nocturnal' },
+              { name: 'Babi Berjenggot Borneo', latin: 'Sus barbatus', status: 'VU', note: 'Migran musiman pemakan biji oak' }
+            ]
+          },
+          {
+            id: 'ktim-4',
+            name: 'Kucing Merah Borneo (Bay Cat)',
+            latin: 'Catopuma badia',
+            collarId: 'ARGOS-KTIM04',
+            popHistory: [3100, 2750, 2400, 2200],
+            initCoord: [115.5, 0.6],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Sangat Misterius (⚠)',
+            habitat: 'Hutan perbukitan batu terjal',
+            cites: 'CITES Appendiks II',
+            threat: 'Penurunan luas tutupan hutan primer',
+            ref: 'Borneo Carnivore Programme & Leibniz-IZW',
+            coexisting: [
+              { name: 'Musang Gunung Kalimantan', latin: 'Diplogale hosei', status: 'VU', note: 'Endemik dataran tinggi terjal' },
+              { name: 'Kucing Emas Asia', latin: 'Catopuma temminckii', status: 'NT', note: 'Karnivora perbukitan' }
+            ]
+          }
+        ]
+      },
+      { 
+        name: 'KALIMANTAN UTARA',  
+        center: [116.5, 3.0],
+        river: 'Daerah Aliran Sungai (DAS) Kayan & Sesayap',
+        meta: {
+          source: 'Balai TN Kayan Mentarang, WWF Kaltara, BKSDA Kaltim-Kaltara',
+          method: 'GPS Collar Tracking, Camera Trap, & Grid Sensus'
+        },
+        fauna: [
+          {
+            id: 'ku-1',
+            name: 'Gajah Kerdil Borneo (Borneo Pygmy Elephant)',
+            latin: 'Elephas maximus borneensis',
+            collarId: 'IRID-KU01',
+            popHistory: [120, 95, 75, 60],
+            initCoord: [116.8, 3.9],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Sangat Terbatas & Rentan (⚠)',
+            habitat: 'Lembah Sungai Sebuku & Tulin',
+            cites: 'CITES Appendiks I',
+            threat: 'Koridor migrasi terpotong kebun sawit & perbatasan Sabah',
+            ref: 'Satgas Konservasi Gajah Nunukan & WWF',
+            coexisting: [
+              { name: 'Rusa Sambur', latin: 'Rusa unicolor', status: 'VU', note: 'Herbivora besar padang rumput' },
+              { name: 'Macan Dahan', latin: 'Neofelis diardi', status: 'VU', note: 'Predator puncak tajuk pohon' }
+            ]
+          },
+          {
+            id: 'ku-2',
+            name: 'Banteng Kalimantan',
+            latin: 'Bos javanicus lowi',
+            collarId: 'VECT-KU02',
+            popHistory: [180, 140, 110, 90],
+            initCoord: [115.6, 3.2],
+            status: 'CR',
+            statusDesc: 'Critically Endangered (Kritis Ekstrem)',
+            trend: 'Kritis (⚠)',
+            habitat: 'Lembah TN Kayan Mentarang',
+            cites: 'CITES Appendiks I',
+            threat: 'Perburuan daging liar & fragmentasi padang pakan',
+            ref: 'Data Monitoring TN Kayan Mentarang',
+            coexisting: [
+              { name: 'Anjing Hutan (Ajag)', latin: 'Cuon alpinus sumatrensis', status: 'EN', note: 'Pemburu kawanan lembah' },
+              { name: 'Sempidan Bulwer', latin: 'Lophura bulweri', status: 'VU', note: 'Burung pegar lereng gunung' }
+            ]
+          },
+          {
+            id: 'ku-3',
+            name: 'Macan Dahan Dataran Tinggi',
+            latin: 'Neofelis diardi',
+            collarId: 'IRID-KU03',
+            popHistory: [1150, 1000, 890, 800],
+            initCoord: [115.3, 2.2],
+            status: 'VU',
+            statusDesc: 'Vulnerable (Rentan)',
+            trend: 'Stabil di Kawasan Konservasi (→)',
+            habitat: 'Hutan pedalaman perbatasan Kaltara',
+            cites: 'CITES Appendiks I',
+            threat: 'Aktivitas pembukaan jalan logging perbatasan',
+            ref: 'WWF Heart of Borneo Strategic Initiative',
+            coexisting: [
+              { name: 'Musang Luwak Garis', latin: 'Chrotogale owstoni', status: 'EN', note: 'Karnivora kecil nokturnal' },
+              { name: 'Pelanduk Kancil Gunung', latin: 'Tragulus versicolor', status: 'DD', note: 'Endemik tersembunyi' }
+            ]
+          },
+          {
+            id: 'ku-4',
+            name: 'Bangau Hutan Storm (Storm’s Stork)',
+            latin: 'Ciconia stormi',
+            collarId: 'SAT-KU04',
+            popHistory: [650, 520, 390, 300],
+            initCoord: [116.4, 2.6],
+            status: 'EN',
+            statusDesc: 'Endangered (Terancam Punah)',
+            trend: 'Menurun Cepat (↓)',
+            habitat: 'Tepian sungai dataran banjir Kayan',
+            cites: 'Perlindungan Mutlak P.106',
+            threat: 'Konversi hutan sempadan sungai dataran rendah',
+            ref: 'Wetlands International & IUCN Stork Specialist',
+            coexisting: [
+              { name: 'Kuntul Perak', latin: 'Egretta intermedia', status: 'LC', note: 'Pemakan ikan lahan basah' },
+              { name: 'Bambangan Merah', latin: 'Ixobrychus cinnamomeus', status: 'LC', note: 'Burung persembunyian rawa' }
+            ]
+          }
+        ]
+      }
+    ];
+
+    var riverGeoJSON = {
+      type: "FeatureCollection",
+      features: [
+        { type: "Feature", properties: { prov: "KALIMANTAN BARAT" }, geometry: { type: "LineString", coordinates: [[114.1, 0.9], [113.4, 0.75], [112.5, 0.5], [111.8, 0.2], [111.1, 0.1], [110.4, 0.0], [109.8, -0.1], [109.1, -0.05]] } },
+        { type: "Feature", properties: { prov: "KALIMANTAN TENGAH" }, geometry: { type: "LineString", coordinates: [[113.8, -0.2], [113.7, -0.8], [113.9, -1.5], [114.0, -2.4], [114.2, -3.2]] } },
+        { type: "Feature", properties: { prov: "KALIMANTAN SELATAN" }, geometry: { type: "LineString", coordinates: [[114.8, -1.2], [114.9, -1.9], [114.8, -2.7], [114.5, -3.4]] } },
+        { type: "Feature", properties: { prov: "KALIMANTAN TIMUR" }, geometry: { type: "LineString", coordinates: [[114.7, 0.9], [115.4, 0.45], [116.1, -0.05], [116.7, -0.38], [117.25, -0.6]] } },
+        { type: "Feature", properties: { prov: "KALIMANTAN UTARA" }, geometry: { type: "LineString", coordinates: [[115.1, 1.7], [115.7, 2.2], [116.4, 2.65], [117.3, 2.9]] } }
+      ]
+    };
+
+    function getPopulationColor(pop) {
+      if (pop <= 100) return '#fed7aa';
+      if (pop <= 500) return '#fdba74';
+      if (pop <= 1500) return '#fb923c';
+      if (pop <= 3000) return '#f97316';
+      if (pop <= 5000) return '#ea580c';
+      if (pop <= 10000) return '#c2410c';
+      return '#991b1b';
+    }
+
+    var map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        sources: {},
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0a0b0d' } }]
+      },
+      center: [114.5, -0.2],
+      zoom: 5.7,
+      pitch: 56,
+      maxPitch: 56,
+      minPitch: 56,
+      bearing: -14,
+      dragRotate: false,
+      touchPitch: false,
+      antialias: true
+    });
+
+    var selectedProvinsi = null;
+    var selectedSpeciesId = null;
+    var selectedIucnStatus = null;
+    var currentProvinceData = null;
+    var kalimantanGeoJSON = null;
+    var partitionDataFeatures = [];
+
+    var liveRadarMarker = null;
+
+    var timelineYears = [2010, 2015, 2020, 2024];
+    var currentYearIndex = 3;
+    var isPlaying = false;
+    var playInterval = null;
+
+    map.on('load', function() {
+      map.setLight({
+        anchor: 'viewport',
+        color: '#ffffff',
+        intensity: 0.45,
+        position: [1.2, 215, 45]
+      });
+
+      map.addSource('kalimantan-rivers', {
+        type: 'geojson',
+        data: riverGeoJSON
+      });
+
+      map.addLayer({
+        id: 'rivers-water',
+        type: 'line',
+        source: 'kalimantan-rivers',
+        paint: {
+          'line-color': '#38bdf8',
+          'line-width': 2.5,
+          'line-opacity': 0
+        }
+      });
+
+      map.addSource('kalimantan-3d', {
+        type: 'geojson',
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      map.addLayer({
+        id: 'kalimantan-extrusion',
+        type: 'fill-extrusion',
+        source: 'kalimantan-3d',
+        paint: {
+          'fill-extrusion-color': [
+            'match',
+            ['get', 'nama_baku'],
+            'KALIMANTAN BARAT', '#1e242c',
+            'KALIMANTAN TENGAH', '#181d24',
+            'KALIMANTAN SELATAN', '#222832',
+            'KALIMANTAN TIMUR', '#1c2128',
+            'KALIMANTAN UTARA', '#202630',
+            '#1e242c'
+          ],
+          'fill-extrusion-height': 5000,
+          'fill-extrusion-base': 0,
+          'fill-extrusion-opacity': 0.95
+        }
+      });
+
+      map.addSource('fauna-partitions', {
+        type: 'geojson',
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      map.addLayer({
+        id: 'fauna-partition-extrusion',
+        type: 'fill-extrusion',
+        source: 'fauna-partitions',
+        paint: {
+          'fill-extrusion-color': [
+            'case',
+            ['!=', ['literal', selectedSpeciesId], null],
+            [
+              'case',
+              ['==', ['get', 'id'], ['literal', selectedSpeciesId]],
+              ['get', 'polyColor'],
+              '#334155'
+            ],
+            ['get', 'polyColor']
+          ],
+          'fill-extrusion-height': ['get', 'extrudeHeight'],
+          'fill-extrusion-base': 0,
+          'fill-extrusion-opacity': 0.95
+        }
+      });
+
+      fetch('https://raw.githubusercontent.com/TheMaggieSimpson/IndonesiaGeoJSON/master/provinsi.json')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          var kalFeatures = [];
+
+          data.features.forEach(function(feat) {
+            var rawName = (feat.properties.Propinsi || feat.properties.NAME_1 || feat.properties.name || "").toUpperCase();
+            if (!rawName.includes("KALIMANTAN")) return;
+
+            var cleanedGeom = filterSmallPolygons(feat.geometry, 500000000);
+            if (!cleanedGeom) return;
+
+            feat.geometry = cleanedGeom;
+            feat.properties.nama_baku = rawName;
+            kalFeatures.push(feat);
+          });
+
+          kalimantanGeoJSON = { type: "FeatureCollection", features: kalFeatures };
+          map.getSource('kalimantan-3d').setData(kalimantanGeoJSON);
+
+          map.on('click', 'kalimantan-extrusion', function(e) {
+            if (!e.features.length) return;
+            var clickedFeature = e.features[0];
+            pilihProvinsi(clickedFeature.properties.nama_baku, e.lngLat);
+          });
+
+          map.on('click', 'fauna-partition-extrusion', function(e) {
+            if (!e.features.length) return;
+            var spId = e.features[0].properties.id;
+            filterBySpecies(spId);
+          });
+
+          map.on('mouseenter', 'kalimantan-extrusion', function() { map.getCanvas().style.cursor = 'pointer'; });
+          map.on('mouseleave', 'kalimantan-extrusion', function() { map.getCanvas().style.cursor = ''; });
+          map.on('mouseenter', 'fauna-partition-extrusion', function() { map.getCanvas().style.cursor = 'pointer'; });
+          map.on('mouseleave', 'fauna-partition-extrusion', function() { map.getCanvas().style.cursor = ''; });
+        });
+
+      map.on('rotate', function() {
+        var bearing = map.getBearing();
+        document.getElementById('compass-needle').style.transform = `rotate(${-bearing}deg)`;
+      });
+
+      startLiveTelemetrySimulator();
+    });
+
+    function startLiveTelemetrySimulator() {
+      var telemetryCandidates = [
+        { name: "Orangutan Morio", collar: "IRID-KTIM02", prov: "KALIMANTAN TIMUR", coord: [116.92, 1.22], sat: "Iridium SBD #4" },
+        { name: "Gajah Kerdil Nunukan", collar: "IRID-KU01", prov: "KALIMANTAN UTARA", coord: [116.82, 3.88], sat: "Argos DCS #2" },
+        { name: "Pesut Mahakam #7", collar: "HYDRO-KTIM01", prov: "KALIMANTAN TIMUR", coord: [116.23, -0.14], sat: "VHF Acoustic Gateway" },
+        { name: "Bekantan Muara", collar: "ARGOS-KS01", prov: "KALIMANTAN SELATAN", coord: [114.92, -2.98], sat: "Argos DCS #6" },
+        { name: "Macan Dahan Schwaner", collar: "IRID-KT03", prov: "KALIMANTAN TENGAH", coord: [113.24, -0.68], sat: "Iridium SBD #1" },
+        { name: "Orangutan Wurmbii #12", collar: "IRID-KT01", prov: "KALIMANTAN TENGAH", coord: [112.52, -1.48], sat: "Iridium SBD #3" }
+      ];
+
+      setInterval(function() {
+        var randItem = telemetryCandidates[Math.floor(Math.random() * telemetryCandidates.length)];
+        var now = new Date();
+        var timeStr = now.toLocaleTimeString('id-ID');
+        var randBatt = Math.floor(75 + Math.random() * 24);
+
+        document.getElementById('telemetry-ticker').innerHTML = `
+          [SIMULASI PING ${timeStr}] Satwa: <b>${randItem.name}</b> | Collar: <b>${randItem.collar}</b> | Sinyal: <b>${randItem.sat}</b> (Batt: ${randBatt}%)
+        `;
+
+        if (currentProvinceData && currentProvinceData.name === randItem.prov) {
+          var cards = document.querySelectorAll('.fauna-card');
+          cards.forEach(function(card) {
+            var existingPing = card.querySelector('.telemetry-ping-flash');
+            if (existingPing) existingPing.remove();
+          });
+
+          var targetCard = document.querySelector(`.fauna-card[data-id*="${randItem.collar.split('-')[1].toLowerCase()}"]`) || document.querySelector('.fauna-card');
+          if (targetCard) {
+            var pingBadge = document.createElement('div');
+            pingBadge.className = 'telemetry-ping-flash';
+            pingBadge.innerHTML = `<span>📡 SIMULASI PING</span> <span>${timeStr}</span>`;
+            targetCard.appendChild(pingBadge);
+          }
+        }
+
+        spawnRadarPulse(randItem.coord);
+      }, 5500);
+    }
+
+    function spawnRadarPulse(coord) {
+      if (liveRadarMarker) liveRadarMarker.remove();
+
+      var el = document.createElement('div');
+      el.className = 'radar-ping-marker';
+      el.innerHTML = `<div class="radar-ring"></div><div class="radar-center"></div>`;
+
+      liveRadarMarker = new maplibregl.Marker({ element: el })
+        .setLngLat(coord)
+        .addTo(map);
+
+      setTimeout(function() {
+        if (liveRadarMarker) {
+          liveRadarMarker.remove();
+          liveRadarMarker = null;
+        }
+      }, 3500);
+    }
+
+    function zoomInMap() { map.zoomIn({ duration: 300 }); }
+    function zoomOutMap() { map.zoomOut({ duration: 300 }); }
+    function resetNorthCompass() {
+      map.easeTo({ bearing: -14, pitch: 56, duration: 800 });
+      document.getElementById('compass-needle').style.transform = 'rotate(14deg)';
+    }
+
+    function filterSmallPolygons(geom, minAreaMeters) {
+      if (geom.type === 'Polygon') {
+        var a = turf.area(turf.polygon(geom.coordinates));
+        return a >= minAreaMeters ? geom : null;
+      }
+      if (geom.type === 'MultiPolygon') {
+        var validCoords = geom.coordinates.filter(function(polyCoords) {
+          var a = turf.area(turf.polygon(polyCoords));
+          return a >= minAreaMeters;
+        });
+
+        if (validCoords.length === 0) return null;
+        if (validCoords.length === 1) return { type: 'Polygon', coordinates: validCoords[0] };
+        return { type: 'MultiPolygon', coordinates: validCoords };
+      }
+      return geom;
+    }
+
+    function pecahWilayahProvinsi(namaProv) {
+      if (!kalimantanGeoJSON) return;
+
+      var targetFeature = kalimantanGeoJSON.features.find(function(f){ return f.properties.nama_baku === namaProv; });
+      var provMeta = provinceData.find(function(p){ return p.name === namaProv; });
+
+      if (!targetFeature || !provMeta) return;
+
+      var remaining = kalimantanGeoJSON.features.filter(function(f){ return f.properties.nama_baku !== namaProv; });
+      map.getSource('kalimantan-3d').setData({ type: "FeatureCollection", features: remaining });
+
+      var points = provMeta.fauna.map(function(f) {
+        var pop = f.popHistory[currentYearIndex];
+        var calcHeight = Math.max((pop / 10) * 100, 600);
+        var color = getPopulationColor(pop);
+
+        return turf.point(f.initCoord, {
+          id: f.id,
+          name: f.name,
+          status: f.status,
+          extrudeHeight: calcHeight,
+          polyColor: color
+        });
+      });
+
+      var bbox = turf.bbox(targetFeature);
+      var voronoiPolygons = turf.voronoi(turf.featureCollection(points), { bbox: bbox });
+
+      partitionDataFeatures = [];
+      voronoiPolygons.features.forEach(function(poly, idx) {
+        if (!poly) return;
+        var pProp = points[idx].properties;
+        try {
+          var clipped = turf.intersect(poly, targetFeature);
+          if (clipped) {
+            var cleanedIntersect = filterSmallPolygons(clipped.geometry, 300000000);
+            if (cleanedIntersect) {
+              clipped.geometry = cleanedIntersect;
+              clipped.properties = pProp;
+              partitionDataFeatures.push(clipped);
+            }
+          }
+        } catch (err) {
+          console.warn("Intersection error:", err);
+        }
+      });
+
+      map.getSource('fauna-partitions').setData({
+        type: "FeatureCollection",
+        features: partitionDataFeatures
+      });
+
+      updatePartitionVisuals();
+    }
+
+    function updatePartitionVisuals() {
+      if (!currentProvinceData) return;
+
+      partitionDataFeatures.forEach(function(feat) {
+        var fMeta = currentProvinceData.fauna.find(function(item){ return item.id === feat.properties.id; });
+        if (fMeta) {
+          var pop = fMeta.popHistory[currentYearIndex];
+          feat.properties.extrudeHeight = Math.max((pop / 10) * 100, 600);
+          feat.properties.polyColor = getPopulationColor(pop);
+        }
+      });
+
+      map.getSource('fauna-partitions').setData({
+        type: "FeatureCollection",
+        features: partitionDataFeatures
+      });
+
+      map.setPaintProperty('fauna-partition-extrusion', 'fill-extrusion-color', [
+        'case',
+        ['!=', ['literal', selectedSpeciesId], null],
+        [
+          'case',
+          ['==', ['get', 'id'], ['literal', selectedSpeciesId]],
+          ['get', 'polyColor'],
+          '#334155'
+        ],
+        ['get', 'polyColor']
+      ]);
+
+      renderSidebarCards(currentProvinceData);
+    }
+
+    function onTimelineChange(val) {
+      currentYearIndex = parseInt(val);
+      var year = timelineYears[currentYearIndex];
+      document.getElementById('timeline-year-text').innerText = year;
+      document.getElementById('timeline-status-badge').innerText = (year === 2024) ? 'Kondisi Terkini' : 'Data Historis ' + year;
+      updatePartitionVisuals();
+    }
+
+    function togglePlayPause() {
+      var btn = document.getElementById('btn-play-pause');
+      if (isPlaying) {
+        clearInterval(playInterval);
+        isPlaying = false;
+        btn.innerText = '▶';
+        btn.title = 'Putar Otomatis';
+      } else {
+        isPlaying = true;
+        btn.innerText = '⏸';
+        btn.title = 'Jeda';
+        playInterval = setInterval(function() {
+          currentYearIndex = (currentYearIndex + 1) % timelineYears.length;
+          document.getElementById('timeline-slider').value = currentYearIndex;
+          onTimelineChange(currentYearIndex);
+        }, 1600);
+      }
+    }
+
+    function toggleIucnFilter(status) {
+      if (!currentProvinceData) return;
+
+      selectedSpeciesId = null;
+      document.querySelectorAll('.fauna-card').forEach(function(c) {
+        c.classList.remove('selected', 'dimmed');
+      });
+
+      if (selectedIucnStatus === status) {
+        selectedIucnStatus = null;
+        ['cr', 'en', 'vu'].forEach(function(s) {
+          var el = document.getElementById('pill-' + s);
+          if (el) el.classList.remove('active');
+        });
+        document.querySelectorAll('.fauna-card').forEach(function(card) {
+          card.classList.remove('hidden-filter');
+        });
+        map.setPaintProperty('fauna-partition-extrusion', 'fill-extrusion-color', ['get', 'polyColor']);
+        return;
+      }
+
+      selectedIucnStatus = status;
+
+      ['cr', 'en', 'vu'].forEach(function(s) {
+        var el = document.getElementById('pill-' + s);
+        if (el) {
+          if (s === status.toLowerCase()) el.classList.add('active');
+          else el.classList.remove('active');
+        }
+      });
+
+      document.querySelectorAll('.fauna-card').forEach(function(card) {
+        if (card.dataset.status === status) {
+          card.classList.remove('hidden-filter');
+        } else {
+          card.classList.add('hidden-filter');
+        }
+      });
+
+      map.setPaintProperty('fauna-partition-extrusion', 'fill-extrusion-color', [
+        'case',
+        ['==', ['get', 'status'], status],
+        ['get', 'polyColor'],
+        '#334155'
+      ]);
+    }
+
+    function filterBySpecies(speciesId) {
+      if (!currentProvinceData) return;
+
+      selectedIucnStatus = null;
+      ['cr', 'en', 'vu'].forEach(function(s) {
+        var el = document.getElementById('pill-' + s);
+        if (el) el.classList.remove('active');
+      });
+
+      if (selectedSpeciesId === speciesId) {
+        selectedSpeciesId = null;
+        document.querySelectorAll('.fauna-card').forEach(function(card) {
+          card.classList.remove('selected', 'dimmed', 'hidden-filter');
+        });
+        map.setPaintProperty('fauna-partition-extrusion', 'fill-extrusion-color', ['get', 'polyColor']);
+        map.flyTo({
+          center: [currentProvinceData.center[0] + 0.45, currentProvinceData.center[1]],
+          zoom: 6.4,
+          pitch: 56,
+          bearing: -14,
+          duration: 1100
+        });
+        return;
+      }
+
+      selectedSpeciesId = speciesId;
+      var targetFauna = currentProvinceData.fauna.find(function(f){ return f.id === speciesId; });
+      if (!targetFauna) return;
+
+      document.querySelectorAll('.fauna-card').forEach(function(card) {
+        card.classList.remove('hidden-filter');
+        if (card.dataset.id === speciesId) {
+          card.classList.add('selected');
+          card.classList.remove('dimmed');
+          card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          card.classList.remove('selected');
+          card.classList.add('dimmed');
+        }
+      });
+
+      map.setPaintProperty('fauna-partition-extrusion', 'fill-extrusion-color', [
+        'case',
+        ['==', ['get', 'id'], speciesId],
+        ['get', 'polyColor'],
+        '#334155'
+      ]);
+
+      map.flyTo({
+        center: [targetFauna.initCoord[0] + 0.15, targetFauna.initCoord[1]],
+        zoom: 7.2,
+        pitch: 56,
+        bearing: -14,
+        duration: 1200
+      });
+
+      spawnRadarPulse(targetFauna.initCoord);
+    }
+
+    function toggleMetadata() {
+      var content = document.getElementById('metadata-content');
+      content.classList.toggle('open');
+    }
+
+    function toggleIucnGuide() {
+      var details = document.getElementById('iucn-guide-details');
+      var arrow = document.getElementById('iucn-arrow');
+      details.classList.toggle('open');
+      arrow.style.transform = details.classList.contains('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+
+    function pilihProvinsi(nama, flyCoordinates) {
+      if (selectedProvinsi === nama) {
+        resetView();
+        return;
+      }
+
+      selectedProvinsi = nama;
+      selectedSpeciesId = null;
+      selectedIucnStatus = null;
+      currentProvinceData = provinceData.find(function(p){ return p.name === nama; });
+
+      if (currentProvinceData) {
+        document.getElementById('sb-prov-name').innerText = currentProvinceData.name;
+        document.getElementById('sb-river-info').innerHTML = `<span>🌊</span> <span>${currentProvinceData.river}</span>`;
+        document.getElementById('meta-source').innerText = currentProvinceData.meta.source;
+        document.getElementById('meta-method').innerText = currentProvinceData.meta.method;
+
+        renderSidebarCards(currentProvinceData);
+        document.getElementById('sidebar-panel').classList.add('open');
+        document.getElementById('timeline-container').style.display = 'flex';
+
+        pecahWilayahProvinsi(nama);
+      }
+
+      var targetLng = flyCoordinates.lng !== undefined ? flyCoordinates.lng : flyCoordinates[0];
+      var targetLat = flyCoordinates.lat !== undefined ? flyCoordinates.lat : flyCoordinates[1];
+
+      map.flyTo({
+        center: [targetLng + 0.45, targetLat],
+        zoom: 6.4,
+        pitch: 56,
+        bearing: -14,
+        duration: 1300
+      });
+
+      map.setPaintProperty('rivers-water', 'line-opacity', [
+        'case',
+        ['==', ['get', 'prov'], selectedProvinsi || ''],
+        0.95,
+        0
+      ]);
+    }
+
+    function renderSidebarCards(prov) {
+      var container = document.getElementById('fauna-list-container');
+      container.innerHTML = '';
+
+      var yr = timelineYears[currentYearIndex];
+
+      prov.fauna.forEach(function(f) {
+        var card = document.createElement('div');
+        card.className = 'fauna-card';
+        card.dataset.id = f.id;
+        card.dataset.status = f.status;
+
+        var isSelected = (selectedSpeciesId === f.id);
+        if (isSelected) {
+          card.classList.add('selected');
+        } else if (selectedSpeciesId) {
+          card.classList.add('dimmed');
+        }
+
+        card.addEventListener('click', function() {
+          filterBySpecies(f.id);
+        });
+
+        var badgeClass = 'status-vu';
+        if (f.status === 'CR') badgeClass = 'status-cr';
+        else if (f.status === 'EN') badgeClass = 'status-en';
+        else if (f.status === 'LC') badgeClass = 'status-lc';
+
+        var popCurrent = f.popHistory[currentYearIndex];
+        var tinggiMeter = ((popCurrent / 10) * 100).toLocaleString('id-ID');
+        var hexColor = getPopulationColor(popCurrent);
+
+        // Render Sub-List Satwa Berdampingan
+        var sympatricHTML = '';
+        if (f.coexisting && f.coexisting.length > 0) {
+          var itemsHTML = f.coexisting.map(function(item) {
+            var bClass = 'status-vu';
+            if (item.status === 'CR') bClass = 'status-cr';
+            else if (item.status === 'EN') bClass = 'status-en';
+            else if (item.status === 'LC') bClass = 'status-lc';
+
+            return `
+              <div class="sympatric-item">
+                <div class="meta-col">
+                  <span class="name-val">${item.name}</span>
+                  <span class="latin-val">${item.latin} &bull; ${item.note}</span>
+                </div>
+                <span class="status-badge ${bClass} badge-mini">${item.status}</span>
+              </div>
+            `;
+          }).join('');
+
+          sympatricHTML = `
+            <div class="sympatric-section">
+              <div class="sympatric-header">
+                <span>🌿</span> <span>Satwa Berbagi Habitat (${f.coexisting.length} Spesies)</span>
+              </div>
+              <div class="sympatric-list">
+                ${itemsHTML}
+              </div>
+            </div>
+          `;
+        }
+
+        card.innerHTML = `
+          <div class="fauna-card-top">
+            <div>
+              <div class="fauna-title" style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:12px; height:12px; border-radius:3px; background:${hexColor};"></span>
+                ${f.name}
+              </div>
+              <div class="fauna-latin">${f.latin} | Collar: ${f.collarId}</div>
+            </div>
+            <span class="status-badge ${badgeClass}">${f.status} • ${f.statusDesc}</span>
+          </div>
+          <div class="fauna-grid">
+            <div class="fg-item">
+              <span class="lbl">Populasi (${yr})</span>
+              <span class="val">${popCurrent.toLocaleString('id-ID')} ekor</span>
+            </div>
+            <div class="fg-item">
+              <span class="lbl">Tinggi Balok 3D</span>
+              <span class="val" style="color:#f97316;">${tinggiMeter} meter</span>
+            </div>
+            <div class="fg-item" style="grid-column: span 2;">
+              <span class="lbl">Lokasi Habitat</span>
+              <span class="val">${f.habitat}</span>
+            </div>
+            <div class="fg-item" style="grid-column: span 2;">
+              <span class="lbl">Regulasi Perlindungan</span>
+              <span class="val" style="color:#38bdf8;">${f.cites}</span>
+            </div>
+          </div>
+          <div class="threat-box">
+            ⚠️ <b>Faktor Tekanan:</b> ${f.threat}
+          </div>
+          ${sympatricHTML}
+          <div class="data-ref-tag">
+            🔗 <b>Rujukan Data:</b> ${f.ref}
+          </div>
+        `;
+
+        container.appendChild(card);
+      });
+    }
+
+    function resetView() {
+      selectedProvinsi = null;
+      selectedSpeciesId = null;
+      selectedIucnStatus = null;
+      currentProvinceData = null;
+
+      if (isPlaying) togglePlayPause();
+
+      document.getElementById('sidebar-panel').classList.remove('open');
+      document.getElementById('timeline-container').style.display = 'none';
+
+      if (kalimantanGeoJSON) {
+        map.getSource('kalimantan-3d').setData(kalimantanGeoJSON);
+      }
+      map.getSource('fauna-partitions').setData({ type: "FeatureCollection", features: [] });
+
+      map.setPaintProperty('rivers-water', 'line-opacity', 0);
+
+      map.flyTo({
+        center: [114.5, -0.2],
+        zoom: 5.7,
+        pitch: 56,
+        bearing: -14,
+        duration: 1300
+      });
+      document.getElementById('compass-needle').style.transform = 'rotate(14deg)';
+    }
+  </script>
+</body>
+</html>
